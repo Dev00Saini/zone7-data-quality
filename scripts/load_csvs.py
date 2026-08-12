@@ -20,9 +20,7 @@ header is malformed — Zone 7's export is missing a comma between
 than the data actually has. There's also a consistently blank trailing
 column in most files (looks like an unused secondary QC flag). This script
 detects and corrects that automatically based on actual field count per
-row, cross-validated against the clean (non-combo) files. Worth mentioning
-in your data hygiene doc as a real source-side quality issue you had to
-work around before any of your own analysis even started.
+row, cross-validated against the clean (non-combo) files.
 
 Filename convention (from the StreamTracker download tool):
     <Station Name>__<Sensor Label>_.csv
@@ -49,15 +47,20 @@ KNOWN_STREAM_WITH_FLOW = ["Timestamp", "Stage (ft)", "Flow (cfs)", "H2O Temperat
 
 def parse_filename(filename):
     """Extract station name and sensor type from the download tool's
-    filename convention."""
+    filename convention: "<Station Name> (<Type>).csv" where Type is
+    "Stream" or "Rain & Precipitation". Some station names contain their
+    own parenthetical, e.g. "Dublin Creek at Interstate 680 (with rain
+    gauge) (Rain & Precipitation).csv" — the greedy match below correctly
+    grabs only the final "(...)" as the type."""
     name = filename.replace(".csv", "")
-    # Sensor label is the last "__<Label>_" segment
-    match = re.match(r"^(.*)__(Stream|Rain___Precipitation)_$", name)
+    match = re.match(r"^(.*) \((Stream|Rain & Precipitation)\)$", name)
     if not match:
-        return name, "unknown"
-    station_raw, sensor_raw = match.groups()
-    station_name = station_raw.replace("_", " ")
-    sensor_type = "rain" if sensor_raw == "Rain___Precipitation" else "stream"
+        print(f"  [WARNING] Filename didn't match expected pattern, "
+              f"loading with best-effort guess: {filename!r}")
+        has_rain_gauge = "with rain gauge" in name.lower()
+        return name, "unknown", has_rain_gauge
+    station_name, sensor_raw = match.groups()
+    sensor_type = "rain" if sensor_raw == "Rain & Precipitation" else "stream"
     has_rain_gauge = "with rain gauge" in station_name.lower()
     return station_name, sensor_type, has_rain_gauge
 
@@ -127,6 +130,12 @@ def init_db(conn):
 
 
 def main():
+    # Always rebuild from a clean database — re-running this script should
+    # be idempotent, not accumulate rows on top of a previous run.
+    if os.path.exists(DB_PATH):
+        os.remove(DB_PATH)
+        print(f"Removed existing {DB_PATH} for a clean rebuild.\n")
+
     conn = sqlite3.connect(DB_PATH)
     init_db(conn)
 
