@@ -11,37 +11,37 @@ and water resources for California's Tri-Valley region and publishes 15-minute
 interval streamflow and rainfall sensor data through their public
 [StreamTracker portal](https://streamtracker.zone7waterca.gov/api/download.html),
 starting October 2022. The agency explicitly flags the data as preliminary and
-containing gaps/errors — which makes it a good real-world data hygiene case
+containing gaps/errors. That makes it a good real-world data hygiene case
 study rather than a pre-cleaned dataset.
 
 ## Stations Analyzed
 
 This project uses a fixed set of 11 stations (14 files, since combo stations
 have both a Stream and Rain export). Full list, types, and date ranges:
-[`docs/stations.md`](docs/stations.md) — download those specific stations to
+[`docs/stations.md`](docs/stations.md). Download those specific stations to
 reproduce these exact results, or add more CSVs to `data/raw/` to extend
 the analysis to additional stations.
 
 ## Approach
 
-1. **Ingest** — manually download 15-minute interval CSVs for a set of stream
+1. **Ingest.** Manually download 15-minute interval CSVs for a set of stream
    and rain stations from the StreamTracker portal, then load them with
-   `scripts/load_csvs.py` into SQLite (`raw_readings`) in **wide format** —
+   `scripts/load_csvs.py` into SQLite (`raw_readings`) in **wide format**:
    one row per station+timestamp, with separate columns per metric (Stage,
    Flow, Precipitation, Water Temperature, Quality). The loader also fixes a
    malformed-header bug in the source export, merges a duplicated station
-   identity, and dedupes a fully-redundant file export (see
-   `docs/data_quality_findings.md` for details on all three).
-2. **SQL-driven quality analysis** — all detection logic lives in SQL, not
+   identity, and dedupes a fully-redundant file export. See
+   `docs/data_quality_findings.md` for details on all three.
+2. **SQL-driven quality analysis.** All detection logic lives in SQL, not
    pandas (`sql/data_quality_analysis.sql`, run via `scripts/run_analysis.py`):
    - Station identity / dedup checks
    - Completeness (% of expected 15-min readings actually present, per station)
    - Gap detection via window functions (`LAG` to compare consecutive timestamps)
    - Per-station gap scorecard (count, total missing time, longest outage)
-   - Metric-level null detection (a sensor that's always blank vs. a timing gap)
-3. **Findings & recommendation** — documented in
+   - Metric-level null detection (a sensor that's always blank versus a timing gap)
+3. **Findings & recommendation.** Documented in
    [`docs/data_quality_findings.md`](docs/data_quality_findings.md), including
-   a gap-handling strategy (interpolate vs. exclude vs. flag) grounded in the
+   a gap-handling strategy (interpolate, exclude, or flag) grounded in the
    actual gap-length distribution found in this data.
 
 ## Results
@@ -52,11 +52,11 @@ at Pleasanton** were the worst performers, each missing 12,000+ hours of
 readings, largely driven by single multi-day sensor outages rather than
 routine gaps (98.4% of all gaps resolve within 2 hours).
 
-Notably, the data pipeline itself introduced more apparent "bad data" than
-the sensors did: a duplicated station identity and a fully-redundant file
-export together accounted for ~19% of initially-loaded rows being exact
-duplicates, and a floating-point rounding issue in date-difference math
-produced ~380,000 false "gaps" before the detection threshold was corrected.
+The data pipeline itself introduced more apparent "bad data" than the
+sensors did. A duplicated station identity and a fully-redundant file export
+together accounted for ~19% of initially-loaded rows being exact duplicates.
+A floating-point rounding issue in date-difference math produced ~380,000
+false "gaps" before the detection threshold was corrected.
 Full write-up, numbers, and methodology: [`docs/data_quality_findings.md`](docs/data_quality_findings.md).
 
 ## Project Structure
@@ -67,7 +67,7 @@ Full write-up, numbers, and methodology: [`docs/data_quality_findings.md`](docs/
 │   └── processed/
 │       └── zone7.db                  # SQLite: raw_readings (wide format, not committed)
 ├── scripts/
-│   ├── load_csvs.py                  # CSV -> SQLite, incl. header-bug fix, dedup, station merge
+│   ├── load_csvs.py                  # CSV to SQLite, incl. header-bug fix, dedup, station merge
 │   └── run_analysis.py               # runs sql/data_quality_analysis.sql, prints all results
 ├── sql/
 │   └── data_quality_analysis.sql     # all gap-detection / quality-scoring queries
@@ -87,20 +87,20 @@ pip install pandas
 #    and place them in data/raw/
 
 cd scripts
-python load_csvs.py         # loads CSVs -> ../data/processed/zone7.db
+python load_csvs.py         # loads CSVs to ../data/processed/zone7.db
 python run_analysis.py      # runs all SQL queries, prints results to the terminal
 ```
 
 `run_analysis.py` reproduces every number in `docs/data_quality_findings.md`
-directly from the SQL file — no manual query copy-pasting needed.
+directly from the SQL file. No manual query copy-pasting needed.
 
 ## Tech Stack
 
-Python (pandas) · SQL (SQLite — window functions, CTEs) · Zone 7 StreamTracker portal (manual CSV export)
+Python (pandas), SQL (SQLite: window functions, CTEs), Zone 7 StreamTracker portal (manual CSV export)
 
 ## Notes on Data Source
 
 Zone 7's data is preliminary and may contain agency-side errors independent of
-transmission gaps. This project focuses specifically on detecting *missing*
-and *anomalous* readings from a data-engineering standpoint, not on validating
-the underlying sensor accuracy.
+transmission gaps. This project focuses specifically on detecting missing
+and structurally anomalous readings from a data-engineering standpoint. It
+does not validate the underlying sensor accuracy.
