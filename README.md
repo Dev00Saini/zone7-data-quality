@@ -34,45 +34,59 @@ study rather than a pre-cleaned dataset.
 
 ## Results
 
-*(Summary — fill in after running the analysis. See `docs/data_quality_findings.md`
-for the full write-up.)*
+Across 11 stations and up to ~4 years of 15-minute data, completeness ranged
+from **57.3% to 95.5%**. **Altamont Creek at Bluebell Dr** and **Arroyo Valle
+at Pleasanton** were the worst performers, each missing 12,000+ hours of
+readings, largely driven by single multi-day sensor outages rather than
+routine gaps (98.4% of all gaps resolve within 2 hours).
+
+Notably, the data pipeline itself introduced more apparent "bad data" than
+the sensors did: a duplicated station identity and a fully-redundant file
+export together accounted for ~19% of initially-loaded rows being exact
+duplicates, and a floating-point rounding issue in date-difference math
+produced ~380,000 false "gaps" before the detection threshold was corrected.
+Full write-up, numbers, and methodology: [`docs/data_quality_findings.md`](docs/data_quality_findings.md).
 
 ## Project Structure
 
 ```
 ├── data/
-│   ├── raw/                          # (unused — API landed directly to SQLite)
+│   ├── raw/                          # manually downloaded station CSVs (not committed)
 │   └── processed/
-│       ├── zone7.db                  # SQLite: raw_readings, ingestion_log
-│       └── *.csv                     # exported query results
+│       ├── zone7.db                  # SQLite: raw_readings (wide format)
+│       └── gap_summary_by_station.csv
 ├── scripts/
-│   ├── ingest.py                     # API -> SQLite, raw landing
-│   └── run_analysis.py               # runs sql/data_quality_analysis.sql, exports CSVs
+│   └── load_csvs.py                  # CSV -> SQLite, incl. header-bug fix, dedup, station merge
 ├── sql/
 │   └── data_quality_analysis.sql     # all gap-detection / quality-scoring queries
 ├── docs/
-│   └── data_quality_findings.md      # the actual write-up / deliverable
+│   └── data_quality_findings.md      # the actual write-up / deliverable, with real numbers
 └── README.md
 ```
 
 ## How to Run
 
 ```bash
-pip install requests pandas
+pip install pandas
 
-# 1. Confirm the real API request shape (see scripts/ingest.py docstring),
-#    then populate the STATIONS dict in scripts/ingest.py.
+# 1. Download CSVs for your stations of interest from
+#    https://streamtracker.zone7waterca.gov/api/download.html
+#    and place them in data/raw/
 
 cd scripts
-python ingest.py            # pulls raw data into ../data/processed/zone7.db
-python run_analysis.py      # runs SQL analysis, exports CSVs, prints summary
+python load_csvs.py         # loads CSVs -> ../data/processed/zone7.db,
+                             # fixes the known header bug, merges the
+                             # duplicate Dublin Creek station identity,
+                             # and dedupes redundant combo-station exports
 ```
 
-Then fill in `docs/data_quality_findings.md` with the real results.
+Then run the queries in `sql/data_quality_analysis.sql` against
+`data/processed/zone7.db` (e.g. via `sqlite3` CLI or `pandas.read_sql_query`)
+to reproduce the analysis in `docs/data_quality_findings.md`.
 
 ## Tech Stack
 
-Python (requests, pandas) · SQL (SQLite — window functions, CTEs) · Zone 7 StreamTracker API
+Python (pandas) · SQL (SQLite — window functions, CTEs) · Zone 7 StreamTracker portal (manual CSV export)
 
 ## Notes on Data Source
 
