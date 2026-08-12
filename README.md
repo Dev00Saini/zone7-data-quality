@@ -9,8 +9,8 @@ interval sensor data?
 [Zone 7 Water Agency](https://www.zone7waterca.gov/) manages flood protection
 and water resources for California's Tri-Valley region and publishes 15-minute
 interval streamflow and rainfall sensor data through their public
-[StreamTracker API](https://streamtracker.zone7waterca.gov/api/), starting
-October 2022. The agency explicitly flags the data as preliminary and
+[StreamTracker portal](https://streamtracker.zone7waterca.gov/api/download.html),
+starting October 2022. The agency explicitly flags the data as preliminary and
 containing gaps/errors — which makes it a good real-world data hygiene case
 study rather than a pre-cleaned dataset.
 
@@ -24,21 +24,25 @@ the analysis to additional stations.
 
 ## Approach
 
-1. **Ingest** — pull raw 15-minute readings for a set of stream and rain
-   stations via the API, landing them untouched into SQLite (`raw_readings`).
-   Nothing is cleaned at this stage — the raw layer is preserved so every
-   downstream decision is auditable.
+1. **Ingest** — manually download 15-minute interval CSVs for a set of stream
+   and rain stations from the StreamTracker portal, then load them with
+   `scripts/load_csvs.py` into SQLite (`raw_readings`) in **wide format** —
+   one row per station+timestamp, with separate columns per metric (Stage,
+   Flow, Precipitation, Water Temperature, Quality). The loader also fixes a
+   malformed-header bug in the source export, merges a duplicated station
+   identity, and dedupes a fully-redundant file export (see
+   `docs/data_quality_findings.md` for details on all three).
 2. **SQL-driven quality analysis** — all detection logic lives in SQL, not
-   pandas:
-   - Deduplication check
+   pandas (`sql/data_quality_analysis.sql`, run via `scripts/run_analysis.py`):
+   - Station identity / dedup checks
    - Completeness (% of expected 15-min readings actually present, per station)
    - Gap detection via window functions (`LAG` to compare consecutive timestamps)
    - Per-station gap scorecard (count, total missing time, longest outage)
-   - Out-of-range value flagging
+   - Metric-level null detection (a sensor that's always blank vs. a timing gap)
 3. **Findings & recommendation** — documented in
    [`docs/data_quality_findings.md`](docs/data_quality_findings.md), including
-   a proposed gap-handling strategy (interpolate vs. exclude vs. flag) based on
-   gap length.
+   a gap-handling strategy (interpolate vs. exclude vs. flag) grounded in the
+   actual gap-length distribution found in this data.
 
 ## Results
 
@@ -61,13 +65,14 @@ Full write-up, numbers, and methodology: [`docs/data_quality_findings.md`](docs/
 ├── data/
 │   ├── raw/                          # manually downloaded station CSVs (not committed)
 │   └── processed/
-│       ├── zone7.db                  # SQLite: raw_readings (wide format)
-│       └── gap_summary_by_station.csv
+│       └── zone7.db                  # SQLite: raw_readings (wide format, not committed)
 ├── scripts/
-│   └── load_csvs.py                  # CSV -> SQLite, incl. header-bug fix, dedup, station merge
+│   ├── load_csvs.py                  # CSV -> SQLite, incl. header-bug fix, dedup, station merge
+│   └── run_analysis.py               # runs sql/data_quality_analysis.sql, prints all results
 ├── sql/
 │   └── data_quality_analysis.sql     # all gap-detection / quality-scoring queries
 ├── docs/
+│   ├── stations.md                   # exact stations/files used, for reproducibility
 │   └── data_quality_findings.md      # the actual write-up / deliverable, with real numbers
 └── README.md
 ```
@@ -82,15 +87,12 @@ pip install pandas
 #    and place them in data/raw/
 
 cd scripts
-python load_csvs.py         # loads CSVs -> ../data/processed/zone7.db,
-                             # fixes the known header bug, merges the
-                             # duplicate Dublin Creek station identity,
-                             # and dedupes redundant combo-station exports
+python load_csvs.py         # loads CSVs -> ../data/processed/zone7.db
+python run_analysis.py      # runs all SQL queries, prints results to the terminal
 ```
 
-Then run the queries in `sql/data_quality_analysis.sql` against
-`data/processed/zone7.db` (e.g. via `sqlite3` CLI or `pandas.read_sql_query`)
-to reproduce the analysis in `docs/data_quality_findings.md`.
+`run_analysis.py` reproduces every number in `docs/data_quality_findings.md`
+directly from the SQL file — no manual query copy-pasting needed.
 
 ## Tech Stack
 
