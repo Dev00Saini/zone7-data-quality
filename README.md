@@ -14,6 +14,14 @@ October 2022. The agency explicitly flags the data as preliminary and
 containing gaps/errors — which makes it a good real-world data hygiene case
 study rather than a pre-cleaned dataset.
 
+## Stations Analyzed
+
+This project uses a fixed set of 11 stations (14 files, since combo stations
+have both a Stream and Rain export). Full list, types, and date ranges:
+[`docs/stations.md`](docs/stations.md) — download those specific stations to
+reproduce these exact results, or add more CSVs to `data/raw/` to extend
+the analysis to additional stations.
+
 ## Approach
 
 1. **Ingest** — pull raw 15-minute readings for a set of stream and rain
@@ -69,7 +77,7 @@ Full write-up, numbers, and methodology: [`docs/data_quality_findings.md`](docs/
 ```bash
 pip install pandas
 
-# 1. Download CSVs for your stations of interest from
+# 1. Download CSVs for the stations listed in docs/stations.md from
 #    https://streamtracker.zone7waterca.gov/api/download.html
 #    and place them in data/raw/
 
