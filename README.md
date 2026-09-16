@@ -59,6 +59,59 @@ A floating-point rounding issue in date-difference math produced ~380,000
 false "gaps" before the detection threshold was corrected.
 Full write-up, numbers, and methodology: [`docs/data_quality_findings.md`](docs/data_quality_findings.md).
 
+## Cloud Migration (Azure SQL Database)
+
+To put a real project behind my Azure Data Fundamentals (DP-900)
+certification, I migrated this pipeline from local SQLite to a free-tier
+Azure SQL Database and re-ran the full analysis there. Every finding matched
+the original SQLite results.
+
+**What moved:** `raw_readings` (1,105,536 rows across 11 stations) loaded
+into Azure SQL Database's serverless free tier (100,000 vCore-seconds/month,
+32 GB storage, auto-pause enabled so it can't generate a bill) via
+`scripts/load_csvs_azure.py`. The analysis logic was ported to
+`sql/data_quality_analysis_azure.sql` and re-run through
+`scripts/run_analysis_azure.py`.
+
+**Dialect differences found and fixed** — SQLite to T-SQL isn't a drop-in
+swap:
+
+1. **Schema reset.** SQLite deletes the file to rebuild clean; Azure SQL uses
+   `IF OBJECT_ID('raw_readings','U') IS NOT NULL DROP TABLE raw_readings`.
+2. **Column typing.** SQLite's loose `TEXT` columns became explicit
+   `NVARCHAR(50)` — `TEXT` is a deprecated type in Azure SQL.
+3. **Column introspection.** SQLite's `PRAGMA table_info(...)` has no Azure
+   SQL equivalent; replaced with a query against `INFORMATION_SCHEMA.COLUMNS`.
+4. **Row deduplication.** SQLite's implicit `rowid` doesn't exist in Azure
+   SQL; replaced with `ROW_NUMBER() OVER (PARTITION BY station_id, timestamp
+   ORDER BY (SELECT NULL))` inside a CTE, deleting rows where `rn > 1`.
+5. **Date arithmetic.** SQLite's `JULIANDAY()` has no T-SQL equivalent;
+   replaced with `DATEDIFF(minute, ...)`, which returns a clean integer with
+   no floating-point rounding. This eliminated the `>20`-minute gap-detection
+   workaround the SQLite version needed to dodge ~380,000 floating-point-noise
+   false gaps — the T-SQL version uses a clean `>15`-minute threshold instead.
+6. **Bulk insert performance.** Row-by-row inserts are effectively free
+   locally but impractically slow over a real network connection; switched to
+   `pyodbc`'s `fast_executemany` with batched `executemany()` calls.
+7. **`GROUP BY` strictness.** T-SQL enforces the ANSI SQL standard — every
+   non-aggregated selected column must appear in `GROUP BY`. SQLite silently
+   allows an ungrouped column and picks an arbitrary matching row. Fixed by
+   adding the functionally-dependent `station_name` column to the `GROUP BY`.
+
+**Result:** every completeness percentage, gap count, and total-missing-hours
+figure matched the original SQLite findings exactly — same 57.3%–95.5%
+completeness range, same two worst-performing stations, same row count after
+dedup (1,105,536). A two-page Power BI dashboard (completeness by station with
+KPI cards, plus a gap-detail table and missing-hours chart) sits on top of the
+Azure SQL Database for at-a-glance review.
+
+Full migration plan and rationale:
+[`docs/azure_migration_plan.md`](docs/azure_migration_plan.md).
+
+**Security note:** Azure SQL credentials are never committed to this repo —
+`load_csvs_azure.py` and `run_analysis_azure.py` read the password from the
+`AZURE_SQL_PASSWORD` environment variable at runtime.
+
 ## Project Structure
 
 ```
@@ -68,12 +121,16 @@ Full write-up, numbers, and methodology: [`docs/data_quality_findings.md`](docs/
 │       └── zone7.db                  # SQLite: raw_readings (wide format, not committed)
 ├── scripts/
 │   ├── load_csvs.py                  # CSV to SQLite, incl. header-bug fix, dedup, station merge
-│   └── run_analysis.py               # runs sql/data_quality_analysis.sql, prints all results
+│   ├── run_analysis.py               # runs sql/data_quality_analysis.sql, prints all results
+│   ├── load_csvs_azure.py            # Azure SQL version of load_csvs.py
+│   └── run_analysis_azure.py         # Azure SQL version of run_analysis.py
 ├── sql/
-│   └── data_quality_analysis.sql     # all gap-detection / quality-scoring queries
+│   ├── data_quality_analysis.sql     # all gap-detection / quality-scoring queries (SQLite)
+│   └── data_quality_analysis_azure.sql  # T-SQL port of the same queries (Azure SQL)
 ├── docs/
 │   ├── stations.md                   # exact stations/files used, for reproducibility
-│   └── data_quality_findings.md      # the actual write-up / deliverable, with real numbers
+│   ├── data_quality_findings.md      # the actual write-up / deliverable, with real numbers
+│   └── azure_migration_plan.md       # step-by-step Azure SQL migration plan and rationale
 └── README.md
 ```
 
@@ -94,9 +151,26 @@ python run_analysis.py      # runs all SQL queries, prints results to the termin
 `run_analysis.py` reproduces every number in `docs/data_quality_findings.md`
 directly from the SQL file. No manual query copy-pasting needed.
 
+To run the Azure SQL Database version instead (see
+[`docs/azure_migration_plan.md`](docs/azure_migration_plan.md) for full
+setup steps):
+
+```bash
+pip install pyodbc
+
+# set your Azure SQL password (never commit it):
+#   PowerShell:  $env:AZURE_SQL_PASSWORD = "your_password_here"
+
+cd scripts
+python load_csvs_azure.py       # loads CSVs into Azure SQL Database
+python run_analysis_azure.py    # runs sql/data_quality_analysis_azure.sql against it
+```
+
 ## Tech Stack
 
-Python (pandas), SQL (SQLite: window functions, CTEs), Zone 7 StreamTracker portal (manual CSV export)
+Python (pandas, pyodbc), SQL (SQLite and T-SQL/Azure SQL Database: window
+functions, CTEs), Azure SQL Database, Power BI, Zone 7 StreamTracker portal
+(manual CSV export)
 
 ## Notes on Data Source
 
