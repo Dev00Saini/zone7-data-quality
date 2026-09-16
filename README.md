@@ -112,6 +112,26 @@ Full migration plan and rationale:
 `load_csvs_azure.py` and `run_analysis_azure.py` read the password from the
 `AZURE_SQL_PASSWORD` environment variable at runtime.
 
+## Dashboard
+
+A two-page interactive Power BI dashboard connected directly to the Azure SQL
+Database:
+
+- **Overview**: KPI cards (worst-station completeness, total missing hours
+  across all stations, stations monitored) plus a bar chart of data
+  completeness by station, sorted worst to best.
+![Overview](screenshots/overview.png)
+- **Detail**: a sortable gap-summary table (gap count, total missing hours,
+  longest single gap per station) plus a bar chart of total missing hours by
+  station.
+![Detail](screenshots/detail.png)
+
+The full interactive report is available at `powerbi/zone7_dashboard.pbix`.
+Since it queries Azure SQL Database directly (Import mode against the same
+queries in `sql/data_quality_analysis_azure.sql`), the file opens and
+displays this cached data standalone, but hitting Refresh requires Azure SQL
+credentials the file doesn't store.
+
 ## Project Structure
 
 ```
@@ -127,6 +147,11 @@ Full migration plan and rationale:
 ├── sql/
 │   ├── data_quality_analysis.sql     # all gap-detection / quality-scoring queries (SQLite)
 │   └── data_quality_analysis_azure.sql  # T-SQL port of the same queries (Azure SQL)
+├── powerbi/
+│   └── zone7_dashboard.pbix          # two-page dashboard, connected to Azure SQL Database
+├── screenshots/
+│   ├── overview.png                  # dashboard page 1: KPIs + completeness chart
+│   └── detail.png                    # dashboard page 2: gap table + missing-hours chart
 ├── docs/
 │   ├── stations.md                   # exact stations/files used, for reproducibility
 │   ├── data_quality_findings.md      # the actual write-up / deliverable, with real numbers
